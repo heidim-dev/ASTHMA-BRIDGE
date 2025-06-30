@@ -1,0 +1,984 @@
+---
+title: "ABRIDGE WBC 450k processing"
+author: "My-Nhi Nguyen"
+date: "3/10/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r packages}
+# load packages required for analysis
+library(minfi)
+library(minfiData)
+library(wateRmelon)
+library(sva)
+library(tidyverse)
+library(RColorBrewer)
+library(data.table)
+library(knitr)
+library(ggstatsplot)
+#library(FSA)
+library(RPMM)
+library(WGCNA)
+library(reshape2)
+library(BEclear)
+library(matrixStats)
+library(sva)
+#library(ENmix)
+```
+
+# WBC
+
+
+## 1. Data Import
+
+We imported raw idat files for 15 plates and selected only White Blood Cell samples. We excluded 5 control samples in each plate for which the sample ID's were 10% methylated mixture, 35% methylated mixture, 60% methylated mixture, 85% methylated mixture and PBL. Methylation sample info was obtained from "ABRIDGE/Harvard ABRIDGE/450K raw data/ABRIG repeat query_112812.csv" and phenotype was from "ABRIDGE/Data/Phenotypes/BRIDGE_phenotype_ForBRIDGE_20130206.csv". Phenotype were mapped to samples by "S_SUBJECTID" in the sample info and "Sapphire Id" in the phenotype data. There are 735 WBC samples in total. The number of samples on each plate are as follows:
+
+
+```{r WBC samples, echo=FALSE}
+plate_ID_USC <- c(1029, 1030 ,1032, 1042 ,1044, 1045, 1046, 1048, 1066, 1067, 1068, 1069, 1070, 1085, 1116)
+no_of_samples <- c(91,91,0,0,0,0,91,34,91,79,91,91,14,50,12)
+WBC_dataset_info <- data.frame(plate_ID_USC,no_of_samples)
+kable(WBC_dataset_info)
+
+```
+
+
+
+
+```{r import data, echo=FALSE}
+# set up a path to the data directory
+#dataDirectory <- system.file("extdata", package = "methylationArrayAnalysis")
+idatPath_1029 <- "~/abridge/Harvard ABRIDGE/450K raw data/1029_HARVARD_PT-01000584/1029 PT-01000584 .idat files"
+idatPath_1030 <- "~/abridge/Harvard ABRIDGE/450K raw data/1030_HARVARD_PT-01000587/1030 PT-01000587 idat files"
+idatPath_1032 <- "~/abridge/Harvard ABRIDGE/450K raw data/1032_HARVARD_PT-01000577/1032 PT-01000577 .idat files"
+idatPath_1042 <- "~/abridge/Harvard ABRIDGE/450K raw data/1042_Harvard_PT-01001540/1042 PT-01001540 .idat files"
+idatPath_1044 <- "~/abridge/Harvard ABRIDGE/450K raw data/1044_HARVARD_PT-01001551/1044 PT-01001551 idat files"
+idatPath_1045 <- "~/abridge/Harvard ABRIDGE/450K raw data/1045_Harvard_PT-01001560/1045 PT-01001560 .idat files"
+idatPath_1046 <- "~/abridge/Harvard ABRIDGE/450K raw data/1046_Harvard_PT-01001502/1046 PT-01001502 .idat files"
+idatPath_1048 <- "~/abridge/Harvard ABRIDGE/450K raw data/1048_Harvard_PT-01001568/1048 PT-01001568 idat files"
+idatPath_1066 <- "~/abridge/Harvard ABRIDGE/450K raw data/1066_Harvard/1066_Harvard IDAT Files"
+idatPath_1067 <- "~/abridge/Harvard ABRIDGE/450K raw data/1067_Harvard/1067_Harvard IDAT files"
+idatPath_1068 <- "~/abridge/Harvard ABRIDGE/450K raw data/1068_Harvard/1068_Harvard IDAT files"
+idatPath_1069 <- "~/abridge/Harvard ABRIDGE/450K raw data/1069_Harvard/1069_Harvard IDAT files"
+idatPath_1070 <- "~/abridge/Harvard ABRIDGE/450K raw data/1070_Harvard/1070_Harvard IDAT files"
+idatPath_1085 <- "~/abridge/Harvard ABRIDGE/450K raw data/1085_Harvard/1085_Harvard IDAT FILES"
+idatPath_1116 <- "~/abridge/Harvard ABRIDGE/450K raw data/1116_Harvard_Pilot HM450 Data/Idat files"
+
+# list the files
+#list.files(dataDirectory, recursive = TRUE)
+#list.files(idatPath, recursive = TRUE)
+
+
+# get the 450k annotation data
+#ann450k <- getAnnotation(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+#head(ann450k)
+
+# read in the sample sheet for the experiment
+#targets1 <- read.metharray.sheet(dataDirectory, pattern="SampleSheet.csv")
+
+all_samples_info <- fread("~/abridge/Harvard ABRIDGE/450K raw data/ABRIG repeat query_112812.csv") %>% 
+  dplyr::select(Complete_Barcode,COLLECTIONDESC,S_SUBJECTID,plate_ID_USC,plate_ID_Harvard,Specimen_Type)
+  
+#length(unique(all_samples_info$Complete_Barcode))#1168 barcodes
+
+BRIDGE_phenotype <- fread("~/abridge/Data/Phenotypes/BRIDGE_phenotype_ForBRIDGE_20130206.csv") %>% 
+  dplyr::rename("Sapphire_Id" ="Sapphire Id")
+#length(unique(BRIDGE_phenotype$Id))#1543 participants
+
+read_targets_WBC <- function(path){
+  targets <- read.metharray.sheet(path, pattern="csv$")
+  targets <- targets %>% 
+    left_join(all_samples_info, by=c("Complete.Barcode"="Complete_Barcode")) %>% 
+    filter(str_detect(SAMPLE.ID, "^S"),str_detect(Specimen_Type, "^WhiteBloodCells"))# filter the Sample ID starting with "S" only
+  targets$Basename <- targets$Complete.Barcode
+  targets <- targets %>% left_join(BRIDGE_phenotype, by=c("S_SUBJECTID"="Sapphire_Id"))
+  return(targets)
+}
+
+
+
+targets_1029 <- read_targets_WBC("~/abridge/Harvard ABRIDGE/450K raw data/1029_HARVARD_PT-01000584/1029 sample-array mapping")#91 samples
+targets_1030 <- read_targets_WBC("~/abridge/Harvard ABRIDGE/450K raw data/1030_HARVARD_PT-01000587/1030 sample-array mapping")#91 samples
+targets_1032 <- read_targets_WBC("~/abridge/Harvard ABRIDGE/450K raw data/1032_HARVARD_PT-01000577/1032 sample-array mapping")#0 samples
+targets_1042 <- read_targets_WBC("~/abridge/Harvard ABRIDGE/450K raw data/1042_Harvard_PT-01001540/1042 sample-array mapping")#0 samples
+targets_1044 <- read_targets_WBC("~/abridge/Harvard ABRIDGE/450K raw data/1044_HARVARD_PT-01001551/1044 sample-array mapping")#0 samples
+targets_1045 <- read_targets_WBC("~/abridge/Harvard ABRIDGE/450K raw data/1045_Harvard_PT-01001560/1045 sample-array mapping")#0 samples
+targets_1046 <- read_targets_WBC("~/abridge/Harvard ABRIDGE/450K raw data/1046_Harvard_PT-01001502/1046 sample-array mapping")#91 samples
+targets_1048 <- read_targets_WBC("~/abridge/Harvard ABRIDGE/450K raw data/1048_Harvard_PT-01001568/1048 sample-array mapping")#34 samples
+targets_1066 <- read_targets_WBC("~/abridge/Harvard ABRIDGE/450K raw data/1066_Harvard")#91 samples
+targets_1067 <- read_targets_WBC("~/abridge/Harvard ABRIDGE/450K raw data/1067_Harvard")#79 samples
+targets_1068 <- read_targets_WBC("~/abridge/Harvard ABRIDGE/450K raw data/1068_Harvard")#91 samples
+targets_1069 <- read_targets_WBC("~/abridge/Harvard ABRIDGE/450K raw data/1069_Harvard")#91 samples
+targets_1070 <- read_targets_WBC("~/abridge/Harvard ABRIDGE/450K raw data/1070_Harvard")#14 samples
+targets_1085 <- read_targets_WBC("~/abridge/Harvard ABRIDGE/450K raw data/1085_Harvard")#50 samples
+targets_1116 <- read_targets_WBC("~/abridge/Harvard ABRIDGE/450K raw data/1116_Harvard_Pilot HM450 Data")#12 samples
+
+#match colnames of all targets
+colnames_targets_all <- as.data.frame(unique(sort(c(colnames(targets_1029),colnames(targets_1030),colnames(targets_1032),colnames(targets_1042),colnames(targets_1044),colnames(targets_1045),colnames(targets_1046),colnames(targets_1048),colnames(targets_1066),colnames(targets_1067),colnames(targets_1068),colnames(targets_1069),colnames(targets_1070),colnames(targets_1085),colnames(targets_1116)))))
+
+target_list <- list(targets_1029,targets_1030, targets_1032,targets_1042, targets_1044,targets_1045, targets_1046, targets_1048,targets_1066, targets_1067,targets_1068, targets_1069,targets_1070, targets_1085, targets_1116)
+
+names(target_list) <- c("targets_1029","targets_1030", "targets_1032", "targets_1042", "targets_1044", "targets_1045", "targets_1046", "targets_1048", "targets_1066", "targets_1067", "targets_1068", "targets_1069", "targets_1070", "targets_1085", "targets_1116")
+
+for (i in 1:length(target_list)){
+  colnames(target_list[[i]])[colnames(target_list[[i]]) %in% c("ALU.C4..HB.313..Ct.vallue","ALU.C4..HB.313..CT.VALUE")] <- "ALU.C4..HB.313..Ct.value"
+  
+  colnames(target_list[[i]])[colnames(target_list[[i]]) %in% c("CONV.0...HB.368..CT.VALUE", "CONV.0...HB_368..Ct.value", "CONV.0..HB.368.Ct.value")] <- "CONV.0...HB.368..Ct.value"
+  
+  colnames(target_list[[i]])[colnames(target_list[[i]]) %in% c("CONV.100...HB.365..CT.VALUE", "CONV.100...HB_365..Ct.value","CONV.100..HB.365.Ct.value")] <- "CONV.100...HB.365..Ct.value"
+  
+  colnames(target_list[[i]])[colnames(target_list[[i]]) %in% c("CONV.50...HB.382..CT.VALUE", "CONV.50..HB.382.Ct.value")] <- "CONV.50...HB.382..Ct.value" 
+  
+    colnames(target_list[[i]])[colnames(target_list[[i]]) %in% c("Number.of.Probes.P.0.05")] <- "Number.of.probes.P.0.05" 
+    
+    colnames(target_list[[i]])[colnames(target_list[[i]]) %in% c("Percent.of.Probes.P.0.05","Percentage.of.Probes.P.0.05")] <- "Percent.of.probes.P.0.05" 
+    
+    colnames(target_list[[i]])[colnames(target_list[[i]]) %in% c("TCGA.DNA.CONC..ng.ul.")] <- "TCGA.DNA.Concentration..ng.ul."
+    
+    colnames(target_list[[i]])[colnames(target_list[[i]]) %in% c("X..Data.Points..P.0.05.")] <- "X..data.points..P.0.05."
+}
+
+colnames_targets_all <- as.data.frame(unique(sort(c(colnames(target_list[[1]]),colnames(target_list[[2]]),colnames(target_list[[3]]),colnames(target_list[[4]]),colnames(target_list[[5]]),colnames(target_list[[6]]),colnames(target_list[[7]]),colnames(target_list[[8]]),colnames(target_list[[9]]),colnames(target_list[[10]]),colnames(target_list[[11]]),colnames(target_list[[12]]),colnames(target_list[[13]]),colnames(target_list[[14]]),colnames(target_list[[15]])))))
+
+# read in the raw data from the IDAT files
+RGSet_1029 <- read.metharray.exp(base=idatPath_1029, targets=target_list[["targets_1029"]])
+RGSet_1029
+RGSet_1030 <- read.metharray.exp(base=idatPath_1030, targets=target_list[["targets_1030"]])
+RGSet_1030
+RGSet_1046 <- read.metharray.exp(base=idatPath_1046, targets=target_list[["targets_1046"]])
+RGSet_1046
+RGSet_1048 <- read.metharray.exp(base=idatPath_1048, targets=target_list[["targets_1048"]])
+RGSet_1048
+RGSet_1066 <- read.metharray.exp(base=idatPath_1066, targets=target_list[["targets_1066"]])
+RGSet_1066
+RGSet_1067 <- read.metharray.exp(base=idatPath_1067, targets=target_list[["targets_1067"]])
+RGSet_1067
+RGSet_1068 <- read.metharray.exp(base=idatPath_1068, targets=target_list[["targets_1068"]])
+RGSet_1068
+RGSet_1069 <- read.metharray.exp(base=idatPath_1069, targets=target_list[["targets_1069"]])
+RGSet_1069
+RGSet_1070 <- read.metharray.exp(base=idatPath_1070, targets=target_list[["targets_1070"]])
+RGSet_1070
+RGSet_1085 <- read.metharray.exp(base=idatPath_1085, targets=target_list[["targets_1085"]])
+RGSet_1085
+RGSet_1116 <- read.metharray.exp(base=idatPath_1116, targets=target_list[["targets_1116"]])
+RGSet_1116
+
+
+WBC_RGSet_all <- list(RGSet_1029, RGSet_1030, RGSet_1046, RGSet_1048, RGSet_1066, RGSet_1067, RGSet_1068, RGSet_1069, RGSet_1070, RGSet_1085, RGSet_1116)
+names(WBC_RGSet_all) <- c("Plate_1029","Plate_1030","Plate_1046","Plate_1048","Plate_1066","Plate_1067","Plate_1068","Plate_1069","Plate_1070","Plate_1085","Plate_1116")
+
+saveRDS(WBC_RGSet_all, "../data/WBC_RGSet_all.rds")
+
+#WBC_RGSet_all <- readRDS("../data/WBC_RGSet_all.rds")
+
+
+#combine all RGSets
+WBC_RGSet <- WBC_RGSet_all[[1]]
+
+for (i in 2:length(WBC_RGSet_all)){
+  temp <- WBC_RGSet_all[[i]]
+  WBC_RGSet <- combineArrays(WBC_RGSet, temp,
+                  outType = c("IlluminaHumanMethylation450k"),
+                  verbose = TRUE)
+}
+
+#WBC_RGSet
+
+saveRDS(WBC_RGSet, "../data/WBC_RGSet.rds")
+
+WBC_RGSet <- readRDS("../data/WBC/WBC_RGSet.rds")
+
+#output raw data
+
+WBC_MSet <- preprocessRaw(WBC_RGSet) 
+
+WBC_raw_betas <- as.data.frame(getBeta(WBC_MSet)) %>% rownames_to_column(var="ProbeID")
+WBC_raw_annotation <- as.data.frame(getAnnotation(WBC_MSet)) %>% rownames_to_column(var="ProbeID")
+WBC_raw_pData <- as.data.frame(pData(WBC_MSet)) %>% rownames_to_column(var="Barcode")
+WBC_raw_ProbeInfo <- as.data.frame(getProbeInfo(getManifest(WBC_MSet)))
+
+
+write_csv(WBC_raw_betas, "../data/WBC_raw_betas.csv")
+write_csv(WBC_raw_annotation , "../data/WBC_raw_annotation.csv")
+write_csv(WBC_raw_pData , "../data/WBC_raw_pData.csv")
+write_csv(WBC_raw_ProbeInfo , "../data/WBC_raw_ProbeInfo.csv")
+
+
+#Because we read the data from a data sheet experiment, the phenotype data is also stored in the RGChannelSet and can be accessed via the accessor command pData
+#phenoData <- pData(RGSet)
+#phenoData[,1:6]
+#The RGChannelSet stores also a manifest object that contains the probe design information of the array:
+#WBC_manifest <- getManifest(WBC_RGSet_all)
+#manifest
+#head(getProbeInfo(manifest))
+#A MethylSet objects contains only the methylated and unmethylated signals. You create this by
+#MSet <- preprocessRaw(RGSet) 
+#MSet
+#The accessors getMeth and getUnmeth can be used to get the methylated and unmethylated intensities matrices:
+#head(getMeth(MSet)[,1:3])
+#head(getUnmeth(MSet)[,1:3])
+#A RatioSet object is a class designed to store Beta values and/or M values instead of the methylated and unmethylated signals. An optional copy number matrix, CN, the sum of the methylated and unmethylated signals, can be also stored
+#RSet <- ratioConvert(MSet, what = "both", keepCN = TRUE)
+#RSet
+#The functions getBeta, getM and getCN return respectively the Beta value matrix, M value matrix and the Copy Number matrix.
+#beta <- getBeta(RSet)
+#head(beta)
+#The function mapToGenome applied to a RatioSet object will add genomic coordinates to each probe together with some additional annotation information. The output object is a GenomicRatioSet (class holding M or/and Beta values together with associated genomic coordinates). It is possible to merge the manifest object with the genomic locations by setting the option mergeManifest to TRUE
+#GRset <- mapToGenome(RSet)
+#GRset
+#Note that the GenomicRatioSet extends the class SummarizedExperiment. Here are the main accessors functions to access the data:
+#beta1 <- getBeta(GRset)
+#M <- getM(GRset)
+#CN <- getCN(GRset)
+#sampleNames <- sampleNames(GRset)
+#probeNames <- featureNames(GRset)
+#pheno <- pData(GRset)
+#To return the probe locations as a GenomicRanges objects, one can use the accessor granges:
+#gr <- granges(GRset)
+#head(gr, n= 3)
+#To access the full annotation, one can use the command getAnnotation:
+#annotation <- getAnnotation(GRset)
+#names(annotation)
+
+```
+
+
+
+## 2. Quality control
+
+### 2.1. QC plot
+
+minfi provides a simple quality control plot that uses the log median intensity in both the methylated (M) and unmethylated (U) channels. When plotting these two medians against each other, it has been observed that good samples cluster together, while failed samples tend to separate and have lower median intensities. In order to obtain the methylated and unmethylated signals, we need to convert the RGChannelSet to an object containing the methylated and unmethylated signals using the function preprocessRaw. It takes as input a RGChannelSet and converts the red and green intensities to methylated and unmethylated signals according to the special 450K probe design, and returns the converted signals in a new object of class MethylSet. It does not perform any normalization.
+
+
+We show quality plots by plate. Here, we used the default threshold for bad sample cutoff of 10.5 which means a sample is considered poor quality if the mean of log medians of the methylated and unmethylated intensities is below 10.5.
+
+```{r QC1, echo=FALSE}
+
+
+WBC_MSet_all <- lapply(WBC_RGSet_all,preprocessRaw)
+#WBC_MSet_all[[1]]
+saveRDS(WBC_MSet_all, "../data/WBC_MSet_all.rds")
+
+WBC_MSet_all <- readRDS("../data/WBC/WBC_MSet_all.rds")
+#The accessors getMeth and getUnmeth can be used to get the methylated and unmethylated intensities matrices:
+#head(getMeth(WBC_MSet_all[[1]])[,1:3])
+
+
+#The functions getQC and plotQC are designed to extract and plot the quality control information from the MethylSet: 
+WBC_qc_all <- lapply(WBC_MSet_all,getQC)
+#head(WBC_qc_all[[1]])
+
+pdf("../figures/WBC/WBC_QCplot_by_plate.pdf") 
+
+for (i in 1:length(WBC_qc_all)){
+  #print(names(WBC_qc_all)[i])
+  plotQC(WBC_qc_all[[i]],badSampleCutoff = 10.5)
+  legend("bottomleft", legend = names(WBC_qc_all)[i], text.col = "blue", bty="n")
+  #print(p)
+}
+dev.off()
+
+```
+
+
+Now, we get all the samples that failed QC plot (red color) based on the Cutoff of 10.5. There were 16 poor intensity samples.
+
+
+```{r QC1 cont, echo=FALSE}
+#get bad samples 
+for (i in 1:length(WBC_qc_all)){
+  WBC_qc_all[[i]]$meds <- (WBC_qc_all[[i]]$mMed + WBC_qc_all[[i]]$uMed)/2
+}
+badSampleCutoff <- 10.5
+
+bad_plates <- c("Plate_1030","Plate_1066","Plate_1069","Plate_1070","Plate_1085")
+
+samples_fail_QCplot <- list()
+
+for (i in 1:length(bad_plates)){
+  d <- as.data.frame(WBC_qc_all[[bad_plates[i]]]) %>%  filter(meds<badSampleCutoff) %>% 
+    rownames_to_column(var="Barcode") %>% 
+    mutate(Plate=bad_plates[i]) %>% 
+    dplyr::select(Plate, Barcode,everything())
+  samples_fail_QCplot[[i]] <- d
+}
+
+samples_fail_QCplot <- bind_rows(samples_fail_QCplot)
+
+kable(samples_fail_QCplot) #16 samples
+
+
+```
+
+To further explore the quality of the samples, it is useful to look at the Beta value densities of the samples, with the option to color the densities by Asthma (Y/N):
+
+```{r QC2, echo=FALSE}
+
+pdf("../figures/WBC/WBC_RawBeta_densityPlot_by_plate.pdf")
+
+for(i in 1:length(WBC_MSet_all)){
+  temp_pData <- as.data.frame(pData(WBC_MSet_all[[i]]))
+  p <- minfi::densityPlot(WBC_MSet_all[[i]], #sampGroups=temp_pData$Asthma ,
+                          main = paste("Raw density of ", names(WBC_MSet_all)[i]))
+  print(p)
+}
+
+dev.off()
+
+#Plate 1048: 2 outliers: 
+#Plate 1067: 1 outliers
+#Plate 1085: 1 outliers
+
+
+#or density bean plots:
+
+#for(i in 1:length(MSet_WBC_all)){
+#  densityBeanPlot(MSet_WBC_all[[i]], sampNames = pData(MSet_WBC_all[[i]])$Complete.Barcode, main = names(MSet_WBC_all)[i])
+#}
+
+
+
+```
+
+We identified 4 samples as they seemed to be outliers in the density plots: 2 samples from Plate 1048, 1 sample from Plate 1067 and 1 sample from Plate 1085.
+
+
+```{r QC3, echo=FALSE}
+## Explore the outlier in the density plots
+
+plot_density_beta_grid <- function(beta, plate_no){#function to plot density for each sample
+  
+  beta_long <- as.data.frame(beta) %>%                          # Apply pivot_longer function
+  pivot_longer(colnames(beta)) %>% 
+  as.data.frame()
+
+p <- ggplot(beta_long, aes(x = value, group=name)) +    # Draw each column as density
+  geom_density()+
+  facet_wrap(~name,ncol=5)
+  labs(title=paste("Density plot to check outlier samples for",plate_no))
+
+  print(p) 
+}
+
+#plate 1048 
+beta_1048 <- getBeta(WBC_MSet_all[["Plate_1048"]])
+plot_density_beta_grid(beta_1048,"Plate_1048") #2 outliers: 6229009034_R02C02, 6229009043_R06C02
+#plate 1067
+beta_1067 <- getBeta(WBC_MSet_all[["Plate_1067"]])
+plot_density_beta_grid(beta_1067[,1:40],"Plate_1067")  
+plot_density_beta_grid(beta_1067[,41:79],"Plate_1067")#1 outliers: 7810920021_R02C02
+#plate 1085
+beta_1085 <- getBeta(WBC_MSet_all[["Plate_1085"]])
+plot_density_beta_grid(beta_1085,"Plate_1085") #1 outliers: 7800246205_R03C01
+
+outliers_density_plot <- data.frame(Plate=c("Plate_1048","Plate_1048","Plate_1067","Plate_1085"),Barcode=c("6229009034_R02C02","6229009043_R06C02","7810920021_R02C02","7800246205_R03C01"), density_outlier= rep("Yes",4) )
+
+kable(outliers_density_plot) # 4 samples
+
+```
+
+
+### 2.2. Control probes plot
+
+The 450k array contains several internal control probes that can be used to assess the quality control of different sample preparation steps (bisulfite conversion, hybridization, etc.). The values of these control probes are stored in the initial RGChannelSet and can be plotted by using the function controlStripPlot and by specifying the control probe type:
+
+```{r Control probes plot , echo=FALSE}
+
+#for (i in 1: length(WBC_RGSet_all)){
+#  print(names(WBC_RGSet_all)[i])
+#  controlStripPlot(WBC_RGSet_all[[i]], controls="BISULFITE CONVERSION II")
+#}
+
+
+
+#All the plots above can be exported into a pdf file in one step using the function qcReport:
+#qcReport(RGSet, pdf= "qcReport.pdf")
+
+
+```
+
+
+### 2.3. MDS plots
+
+```{r MDS, echo=FALSE}
+
+mdsPlot(WBC_RGSet, numPositions = 1000, sampNames = NULL, sampGroups = pData(WBC_RGSet)$Gender,
+    pch = 1, pal = brewer.pal(8, "Dark2"), legendPos = "bottomleft", main = "MDS plot of raw data by Gender")
+
+mdsPlot(WBC_RGSet, numPositions = 1000, sampNames = NULL, sampGroups = pData(WBC_RGSet)$Asthma,
+    pch = 1, pal = brewer.pal(8, "Dark2"), legendPos = "bottomleft", main = "MDS plot of raw data by Asthma")
+
+mdsPlot(WBC_RGSet, numPositions = 1000, sampNames = NULL, sampGroups = pData(WBC_RGSet)$COLLECTIONDESC,
+    pch = 1, pal = brewer.pal(10, "Dark2"), legendPos = "bottomleft", main = "MDS plot of raw data by collecting location")
+
+
+mdsPlot(WBC_RGSet, numPositions = 1000, sampNames = NULL, sampGroups = pData(WBC_RGSet)$plate_ID_USC,
+    pch = 1, pal = brewer.pal(10, "Dark2"), legendPos = "bottomleft", main = "MDS plot of raw data by plate")
+
+#MDS plots without sex chromosome
+
+WBC_MSet_noXY <- WBC_MSet[rownames(as.data.frame(getAnnotation(WBC_MSet)) %>% filter(! chr %in% c("chrY","chrX"))),]
+
+unique(as.data.frame(getAnnotation(WBC_MSet_noXY))$chr)
+
+pdf("../figures/WBC/WBC_MDSplots.pdf")
+mdsPlot(WBC_MSet_noXY, numPositions = 1000, sampNames = NULL, sampGroups = pData(WBC_MSet_noXY)$Gender,
+    pch = 1, pal = brewer.pal(8, "Dark2"), legendPos = "bottomleft", main = "MDS plot of raw data without X & Y chromosomes by Gender")
+
+mdsPlot(WBC_MSet_noXY, numPositions = 1000, sampNames = NULL, sampGroups = pData(WBC_MSet_noXY)$Asthma,
+    pch = 1, pal = brewer.pal(8, "Dark2"), legendPos = "bottomleft", main = "MDS plot of raw data without X & Y chromosomes by Asthma")
+
+mdsPlot(WBC_MSet_noXY, numPositions = 1000, sampNames = NULL, sampGroups = pData(WBC_MSet_noXY)$COLLECTIONDESC,
+    pch = 1, pal = brewer.pal(10, "Dark2"), legendPos = "bottomleft", main = "MDS plot of raw data without X & Y chromosomes by collecting location")
+
+
+mdsPlot(WBC_MSet_noXY, numPositions = 1000, sampNames = NULL, sampGroups = pData(WBC_MSet_noXY)$plate_ID_USC,
+    pch = 1, pal = brewer.pal(10, "Dark2"), legendPos = "bottomleft", main = "MDS plot of raw data without X & Y chromosomes by plate")
+
+dev.off()
+
+```
+
+
+
+## 3. Preprocessing and normalization
+
+### 3.1. Filtering
+
+Once the data has been imported into R, we can evaluate its quality. Firstly, we need to calculate detection p-values. We can generate a detection p-value for every CpG in every sample, which is indicative of the quality of the signal. The method used by minfi to calculate detection p-values compares the total signal (M+U) for each probe to the background signal level, which is estimated from the negative control probes. Very small p-values are indicative of a reliable signal whilst large p-values, for example >0.05, generally indicate a poor quality signal.
+
+
+Plotting the mean detection p-value for each sample allows us to gauge the general quality of the samples in terms of the overall signal reliability. Samples that have many failed probes will have relatively large mean detection p-values.
+
+```{r Filtering 1, echo=FALSE}
+
+
+
+#WBC_RGSet <- readRDS("../data/WBC_RGSet.rds")
+
+#sample code:
+#detP <- detectionP(RGsetEx.sub)
+#  failed <- detP>0.01
+#  colMeans(failed) # Fraction of failed positions per sample
+#  sum(rowMeans(failed)>0.5) # How many positions failed in >50% of samples?
+
+# calculate the detection p-values
+
+detP <- detectionP(WBC_RGSet)
+
+#for (i in 1:length(RGSet_WBC_all)){
+#  detP[[i]] <- detectionP(RGSet_WBC_all[[i]])
+#}
+
+#head(detP)
+
+
+# examine mean detection p-values across all samples to identify any failed samples
+#pal <- brewer.pal(8,"Dark2")
+#par(mfrow=c(1,2))
+
+
+
+  
+  col_means <- colMeans(detP)#Mean detection p-values
+  #cols1 <- c("white", "red")[(col_means > 0.05) + 1]
+  
+  failed <- detP>0.05
+  percentage_bad_sites <- colMeans(failed) # Fraction of failed positions per sample
+  percentage_bad_samples <- rowMeans(failed) # Fraction of failed samples per position
+  
+  
+  pdf("../figures/WBC/WBC_detection_pvalues.pdf") 
+  par(mfrow=c(3,1))
+  barplot(col_means, las=2,
+        cex.names=0.5, ylab="Mean detection p-values", main="Mean detection p-values by sample")
+  abline(h=0.05,col="red")
+  
+  
+  barplot(percentage_bad_sites, las=2,
+        cex.names=0.5, ylab="Percentage of CpGs having p-values > 0.05", main="Fraction of failed sites per sample")
+  abline(h=0.05,col="red")
+  
+  
+  barplot(percentage_bad_samples, las=2,
+        cex.names=0.5, ylab="Percentage of samples having p-values > 0.05", main="Fraction of failed samples per site")
+  abline(h=0.05,col="red")
+  
+  dev.off()
+  
+# number of sites failed in >1%-10% of samples
+  sapply(seq(0.01,0.1,0.01), function(i){sum(percentage_bad_samples>i)})
+
+# number of samples failed in >1%-10% of sites
+  sapply(seq(0.01,0.1,0.01), function(i){sum(percentage_bad_sites>i)})
+
+
+#legend("topleft", legend=levels(factor(targets$Sample_Group)), fill=pal,
+#       bg="white")
+
+#barplot(colMeans(detP), col=pal[factor(targets$Complete.Barcode)], las=2, 
+#        cex.names=0.8, ylim=c(0,0.002), ylab="Mean detection p-values")
+#abline(h=0.05,col="red")
+#legend("topleft", legend=levels(factor(targets$Sample_Group)), fill=pal, 
+#       bg="white")
+
+
+
+```
+
+We identified sites that are non-sex and failed (having detection p-value > 0.05) in >5% of samples. These probes are to be removed after normalization.
+
+```{r Remove failed probes, echo=FALSE}
+
+### LIST Bad Probes
+failedProbes <- rownames(failed)[rowMeans(failed)>0.05]     #list of probes that failed in more than 5% of the sample
+length(failedProbes) # 37,436 probes failed in more than 5% of samples
+#distribution of failed probes among chromosomes
+df_failedProbes <- WBC_raw_annotation %>% filter(ProbeID %in% failedProbes)
+
+table(df_failedProbes$chr)
+
+
+#list of failed probes not on X & Y chromosomes
+df_failedProbes_noXY <- df_failedProbes %>% filter(!chr %in% c("chrX","chrY") )
+failedProbes_noXY <- df_failedProbes_noXY[["ProbeID"]]
+
+length(failedProbes_noXY) #35932
+
+write_csv(as.data.frame(failedProbes_noXY),"../data/WBC/WBC_failedProbes_noXY_removed.csv")
+
+#failedProbes_noXY <- fread("../data/WBC/WBC_failedProbes_noXY_removed.csv")
+
+```
+
+
+
+Assuming that the bad probes are already removed, we identified samples that failed (having detection p-value > 0.05) in >5% of remaining sites. There were 22 samples to be removed.
+
+
+```{r Filtering 1 cont , echo=FALSE}
+
+detP_noBadProbes <- detP[!rownames(detP)%in% failedProbes_noXY,]
+
+  
+  failed_noBadProbes <- detP_noBadProbes>0.05
+  percentage_bad_sites <- colMeans(failed_noBadProbes) # Fraction of failed positions per sample
+  high_percentage_detection_pvalue_samples <- data.frame(percentage_failed_sites=percentage_bad_sites[percentage_bad_sites > 0.05]) %>% 
+    rownames_to_column(var="Barcode") %>% 
+    mutate(Plate=paste0("Plate_",pData(WBC_RGSet)$plate_ID_USC)[percentage_bad_sites > 0.05])%>%
+    dplyr::select(Plate, Barcode, everything())
+
+
+kable(high_percentage_detection_pvalue_samples) # 22 samples
+
+```
+
+
+
+Now, we combine all the bad samples detected in QC plot and density plot (Section 2.1) and filtering (Section 3.1) in one table
+
+```{r combin QC, echo=FALSE}
+WBC_all_bad_samples <- samples_fail_QCplot %>% full_join(outliers_density_plot, by = c("Plate","Barcode")) %>% 
+  full_join(high_percentage_detection_pvalue_samples, by = c("Plate","Barcode")) %>% arrange(Plate,Barcode) %>% 
+  dplyr::select(Plate,Barcode,everything())
+
+#total 30 bad samples
+kable(WBC_all_bad_samples)
+write_csv(WBC_all_bad_samples,"../data/WBC_bad_samples_removed.csv")
+
+#number of bad samples by plate
+table(WBC_all_bad_samples$Plate)
+
+```
+
+
+
+```{r Filtering 2, echo=FALSE}
+
+
+# remove poor quality samples
+sampleNames <- sampleNames(WBC_RGSet)
+WBC_RGSet_filterBadSamples <- WBC_RGSet[,!sampleNames %in% WBC_all_bad_samples$Barcode]
+WBC_RGSet_filterBadSamples
+
+saveRDS(WBC_RGSet_filterBadSamples, "../data/WBC_RGSet_filterBadSamples.rds")
+
+```
+
+We re-QC after filtering
+
+```{r re-QC, echo=FALSE}
+
+#QC plot
+
+WBC_MSet_filtered <- preprocessRaw(WBC_RGSet_filterBadSamples) 
+WBC_MSet_filtered
+re_qc <- getQC(WBC_MSet_filtered)
+
+
+#detection p-values filtering
+detP_filtered <- detectionP(WBC_RGSet_filterBadSamples)
+# examine mean detection p-values across all samples to identify any failed samples
+  
+  col_means_filtered <- colMeans(detP_filtered[!rownames(detP_filtered) %in% failedProbes_noXY,])#Mean detection p-values
+  #cols1 <- c("white", "red")[(col_means > 0.05) + 1]
+  
+  failed_filtered <- detP_filtered[!rownames(detP_filtered) %in% failedProbes_noXY,]>0.05
+  percentage_bad_sites_filtered <- colMeans(failed_filtered) # Fraction of failed positions per sample
+  percentage_bad_samples_filtered <- rowMeans(failed_filtered) # Fraction of failed samples per position
+  
+  
+pdf("../figures/WBC/WBC_reQC.pdf")  
+##plots
+
+
+plotQC(re_qc)
+
+#density plot
+minfi::densityPlot(WBC_MSet_filtered, main="Density plot of all pre-processed samples after filtering")
+
+
+
+
+  
+  #par(mfrow=c(3,1))
+  barplot(col_means_filtered, las=2,
+        cex.names=0.5, ylab="Mean detection p-values", main="Mean detection p-values by sample after filtering")
+  abline(h=0.05,col="red")
+  
+  
+  barplot(percentage_bad_sites_filtered, las=2,
+        cex.names=0.5, ylab="Percentage of CpGs having p-values > 0.05", main="Fraction of failed sites per sample after filtering")
+  abline(h=0.05,col="red")
+  
+  
+  barplot(percentage_bad_samples_filtered, las=2,
+        cex.names=0.5, ylab="Percentage of samples having p-values > 0.05", main="Fraction of failed samples per site after filtering")
+  abline(h=0.05,col="red")
+  
+dev.off()
+
+
+```
+
+
+### 3.2. Normalization
+
+Different normalization procedures are available in minfi. We performed normalization using the within-array combination of Noob (Triche et al. 2013) + BMIQ based on the recommendation by Liu and Siegmund (2016). We also filtered failed probes detected earlier.
+
+```{r noob normalization, echo=FALSE}
+
+# Noob normalization
+
+
+WBC_MSet_filterBadSamples_noob <- preprocessNoob(WBC_RGSet_filterBadSamples)
+WBC_MSet_filterBadSamples_noob
+
+# filter failed probes
+
+WBC_MSet_filterBadSamplesAndSites_noob <- WBC_MSet_filterBadSamples_noob[!rownames(WBC_MSet_filterBadSamples_noob) %in% failedProbes_noXY,]
+WBC_MSet_filterBadSamplesAndSites_noob
+
+saveRDS(WBC_MSet_filterBadSamplesAndSites_noob, "../data/WBC_MSet_filterBadSamplesAndSites_noob.rds")
+
+#WBC_MSet_filterBadSamplesAndSites_noob <- readRDS("../data/WBC/WBC_MSet_filterBadSamplesAndSites_noob.rds")
+
+```
+
+
+```{r BMIQ normalization}
+#BMIQ (using wateRmelon package)
+
+WBC_MSet_filterBadSamplesAndSites_noob_BMIQ  <- BMIQ(WBC_MSet_filterBadSamplesAndSites_noob)
+
+
+saveRDS(WBC_MSet_filterBadSamplesAndSites_noob_BMIQ, "../data/WBC_MSet_filterBadSamplesAndSites_noob_BMIQ.rds")
+
+
+#WBC_MSet_filterBadSamplesAndSites_noob_BMIQ <- readRDS("../data/WBC/WBC_MSet_filterBadSamplesAndSites_noob_BMIQ.rds")
+
+```
+
+
+```{r plots after normalization}
+
+pdf("../figures/WBC/WBC_afterNormalization.pdf") 
+#density plot after noob normalization
+minfi::densityPlot(getBeta(WBC_MSet_filterBadSamplesAndSites_noob), main="Density plot of all samples after filtering and Noob processing")
+
+#density plot after noob & BMIQ normalization
+
+minfi::densityPlot(WBC_MSet_filterBadSamplesAndSites_noob_BMIQ, main="Density plot of all samples after filtering and Noob & BMIQ processing")
+
+dev.off()
+
+```
+
+
+
+### 4. Genetic variants, cell type composition and sex prediction
+
+#### 4.1. SNPs
+
+```{r SNPs}
+#Probe, CpG and SBE correspond the SNPs present inside the probe body, at the CpG interrogation and at the single nucleotide extension respectively. The columns with rs give the names of the SNPs while the columns with maf gives the minor allele frequency of the SNPs based on the dbSnp database.
+
+#There are 6 columns Probe_rs,Probe_maf, CpG_rs, CpG_maf, SBE_rs, and SBE_maf. ‘Probe’ indicates a SNP in the probe, ‘CpG’ a SNP in the CpG site and ‘SBE’ in the single base extension site. The _rs gives the SNP RS identifier and the _maf gives the minor allele frequency
+snps <- getSnpInfo(WBC_MSet_filterBadSamplesAndSites_noob, snpAnno=NULL)
+head(snps,10)
+#The function addSnpInfo will add to the GenomicRanges of the GenomicRatioSet the 6 columns
+
+#GRset <- addSnpInfo(GRset)
+
+snps <- as.data.frame(snps)
+summary(snps)
+
+#count snps at either CpG or SBE
+
+snps_info <- snps %>% filter(!is.na(CpG_rs)|!is.na(SBE_rs))# 14,823 SNPs in CpG site or SBE
+
+
+# we drop the probes that contain either a SNP at the CpG interrogation or at the single nucleotide extension for minor allele frequency >= 0.01
+snps_info_rm <- snps %>% filter(SBE_maf>=0.01|CpG_maf>=0.01)# 14,639
+
+fwrite(snps_info_rm %>% rownames_to_column(var="ProbeID"),"../data/WBC/WBC_SNP_removed.csv")
+
+
+WBC_MSet_filterBadSamplesAndSites_noob_BMIQ_noSNPs <- WBC_MSet_filterBadSamplesAndSites_noob_BMIQ[!rownames(WBC_MSet_filterBadSamplesAndSites_noob_BMIQ) %in% rownames(snps_info_rm),]
+
+
+WBC_MSet_filterBadSamplesAndSites_noob_noSNPs <- WBC_MSet_filterBadSamplesAndSites_noob[!rownames(WBC_MSet_filterBadSamplesAndSites_noob) %in% rownames(snps_info_rm),]
+
+
+```
+
+
+```{r export final data}
+
+#betas
+WBC_final_betas <- as.data.frame(WBC_MSet_filterBadSamplesAndSites_noob_BMIQ_noSNPs) %>% rownames_to_column(var="ProbeID")
+# probe annotation
+WBC_final_annotation <- as.data.frame(getAnnotation(WBC_MSet_filterBadSamplesAndSites_noob_noSNPs)) %>% rownames_to_column(var="ProbeID")
+#pData
+WBC_final_pData <- as.data.frame(pData(WBC_MSet_filterBadSamplesAndSites_noob_noSNPs)) %>% rownames_to_column(var="Barcode")
+
+#check
+identical(WBC_final_betas$ProbeID,WBC_final_annotation$ProbeID)
+identical(colnames(WBC_final_betas)[-1],WBC_final_pData$Barcode)
+
+
+write_csv(WBC_final_betas, "../data/WBC/WBC_final_betas.csv")
+write_csv(WBC_final_annotation , "../data/WBC/WBC_final_annotation.csv")
+write_csv(WBC_final_pData , "../data/WBC/WBC_final_pData.csv")
+
+
+
+WBC_final_betas <- read_csv("../data/WBC/WBC_final_betas.csv") %>% column_to_rownames(var="ProbeID")
+WBC_final_annotation <- read_csv("../data/WBC/WBC_final_annotation.csv") %>% column_to_rownames(var="ProbeID")
+WBC_final_pData <- read_csv("../data/WBC/WBC_final_pData.csv") %>% column_to_rownames(var="Barcode")
+
+
+```
+
+
+
+#### 4.2. Cell type composition
+
+As shown in (Andrew E Jaffe and Rafael A Irizarry 2014), biological findings in blood samples can often be confounded with cell type composition. In order to estimate the confounding levels between phenotype and cell type composition, the function estimateCellCounts depending on the package FlowSorted.Blood.450k estimates the cell type composition of blood samples by using a modified version of the algorithm described in (E Andres Houseman et al. 2012). The function takes as input a RGChannelSet and returns a cell counts vector for each samples:
+
+```{r Cell type composition}
+library(FlowSorted.Blood.450k)
+WBC_RGSet_filterBadSamples_CellTypeComposition <- estimateCellCounts(WBC_RGSet_filterBadSamples, compositeCellType = "Blood", processMethod = "preprocessNoob", probeSelect = "both", returnAll = FALSE, meanPlot = TRUE, verbose = TRUE)
+
+write_csv(as.data.frame(WBC_RGSet_filterBadSamples_CellTypeComposition) %>% rownames_to_column(var="Barcode"),"../data/WBC_RGSet_filterBadSamples_CellTypeComposition.csv") 
+```
+
+```{r Correction for batch effect}
+
+##############################################################
+# Use BEclear for batch effect correction
+#https://www.bioconductor.org/packages/release/bioc/vignettes/BEclear/inst/doc/BEclear.html
+##############################################################
+
+#Use BEclear for batch effect correction
+#table(WBC_final_pData$plate_ID_USC)
+
+#ex.data <- WBC_final_betas
+#ex.samples <- data.frame(sample_id=rownames(WBC_final_pData),batch_id=WBC_final_pData$plate_ID_USC)
+
+#batchEffect <- calcBatchEffects(
+#  data = ex.data, samples = ex.samples,
+#  adjusted = TRUE, method = "fdr"
+#)
+#INFO [2024-02-16 16:01:54] Transforming matrix to data.table
+#INFO [2024-02-16 16:02:12] Calculate the batch effects for 11 batches
+#INFO [2024-02-16 18:00:08] Adjusting p-values
+#mdifs <- batchEffect$med
+#pvals <- batchEffect$pval
+#summary <- calcSummary(medians = mdifs, pvalues = pvals)
+#INFO [2024-02-16 20:27:53] Generating a summary table
+#knitr::kable(head(summary), caption = 'Summary over the batch affected gene-sample combination of the example data set')
+#score <- calcScore(ex.data, ex.samples, summary, dir = getwd())
+#INFO [2024-02-16 20:31:37] Calculating the scores for 11 batches
+#knitr::kable(score, caption = 'Batch scores of the example data-set')
+#cleared.data <- clearBEgenes(ex.data, ex.samples, summary)
+#INFO [2024-02-16 21:28:32] Removing values with batch effect:
+#INFO [2024-02-16 21:28:32] 4262314 values ( 1.39003576599882 % of the data) set to NA
+#> library(ids)
+#> 
+#> rowBlockSize and colBlockSize have to be bigger than the number of samples in the biggest batch
+#corrected.data <- imputeMissingData(cleared.data,
+#  rowBlockSize = 100,
+#  colBlockSize = 100, epochs = 50,
+#  outputFormat = "", dir = getwd()
+#)
+#INFO [2024-02-17 01:07:47] Starting the imputation of missing values.
+#INFO [2024-02-17 01:07:47] This might take a while.
+#INFO [2024-02-17 01:07:47] BEclear imputation is started:
+#INFO [2024-02-17 01:07:47] block size: 100  x  100
+#INFO [2024-02-17 01:11:36] Impute missing data for block 1 of 30443
+#INFO [2024-02-17 01:11:38] Impute missing data for block 2 of 30443
+#INFO [2024-02-17 01:11:38] Impute missing data for block 3 of 30443
+#INFO [2024-02-17 01:11:38] Impute missing data for block 4 of 30443
+#INFO [2024-02-17 01:11:39] Impute missing data for block 5 of 30443
+#INFO [2024-02-17 01:11:39] Impute missing data for block 6 of 30443
+#INFO [2024-02-17 04:38:30] Impute missing data for block 30441 of 30443
+#INFO [2024-02-17 04:38:30] Impute missing data for block 30442 of 30443
+#INFO [2024-02-17 04:38:31] Impute missing data for block 30443 of 30443
+#corrected.data.valid <- replaceOutsideValues(corrected.data)
+#INFO [2024-02-18 00:37:27] Replacing values below 0 or above 1:
+#INFO [2024-02-18 00:37:36] 304490 values replaced
+
+
+#WBC_final_betas_BEclear <- corrected.data.valid
+
+##############################################################
+# Use COMBAT
+# https://rdrr.io/bioc/sva/f/inst/doc/sva.pdf
+##############################################################
+
+
+
+WBC_final_Mvals <- Beta2M(WBC_final_betas)
+
+WBC_final_Mvals_ComBat <- ComBat(
+  dat = WBC_final_Mvals,
+  batch = WBC_final_pData$plate_ID_USC,
+  mod = model.matrix(~1, data=WBC_final_pData),
+  par.prior = TRUE,
+  prior.plots = FALSE,
+  mean.only = FALSE,
+  ref.batch = NULL,
+  BPPARAM = bpparam("MulticoreParam")
+)
+
+
+WBC_final_betas_ComBat <- m2beta(WBC_final_Mvals_ComBat)
+
+#save
+
+write_csv(as.data.frame(WBC_final_betas_ComBat) %>% rownames_to_column(var="ProbeID"), "../data/WBC/WBC_final_betas_ComBat.csv")
+
+##############################################################
+# Plot
+##############################################################
+
+#Calculate and plot mean/median betas before and after BEclear for each sample
+
+mean_betas_woBE <- colMeans(WBC_final_betas,na.rm=TRUE)
+median_betas_woBE <- colMedians(as.matrix(WBC_final_betas),na.rm=TRUE)
+
+mean_betas_wComBat <- colMeans(WBC_final_betas_ComBat, na.rm=TRUE)
+median_betas_wComBat <- colMedians(as.matrix(WBC_final_betas_ComBat), na.rm=TRUE)
+
+
+
+pdf("../figures/WBC/WBC_BatchEffect.pdf")
+
+
+#ggplot( ) +
+#  geom_point(aes(x=1:ncol(WBC_final_betas), y=mean_betas_woBE, shape=WBC_final_pData$COLLECTIONDESC, color=as.factor(WBC_final_pData$plate_ID_USC)))+
+#  labs(title="Mean betas BEFORE correction for batch effect", x = "Sample Index", y = "Mean beta")+
+#  ylim(0.45,0.55)
+
+#ggplot( ) +
+#  geom_point(aes(x=1:ncol(WBC_final_betas_ComBat), y=mean_betas_wBE, shape=WBC_final_pData$COLLECTIONDESC, color=as.factor(WBC_final_pData$plate_ID_USC)))+
+#  labs(title="Mean betas AFTER ComBat correction for batch effect", x = "Sample Index", y = "Mean beta")+
+#  ylim(0.45,0.55)
+
+
+ggplot( ) +
+  geom_point(aes(x=1:ncol(WBC_final_betas), y=median_betas_woBE, shape=WBC_final_pData$COLLECTIONDESC, color=as.factor(WBC_final_pData$plate_ID_USC)))+
+  labs(title="Median betas BEFORE correction for batch effect", x = "Sample Index", y = "Median beta")+
+  ylim(0.5,0.7)
+
+
+ggplot( ) +
+  geom_point(aes(x=1:ncol(WBC_final_betas_ComBat), y=median_betas_wComBat, shape=WBC_final_pData$COLLECTIONDESC, color=as.factor(WBC_final_pData$plate_ID_USC)))+
+  labs(title="Median betas AFTER ComBat correction for batch effect", x = "Sample Index", y = "Median beta")+
+  ylim(0.5,0.7)
+
+dev.off()
+
+
+
+```
+
+
+
+#### 4.3 Sex prediction
+
+By looking at the median total intensity of the X chromosome-mapped probes, denoted med(X), and the median total intensity of the Y-chromosome-mapped probes, denoted med(Y), one can observe two different clusters of points corresponding to which gender the samples belong to. To predict the gender, minfi separates the points by using a cutoff on log2med(Y)−log2med(X). The default cutoff is −2. Since the algorithm needs to map probes to the X-chr and to the Y-chr, the input of the function getSex needs to be a GenomicMethylSet or a GenomicRatioSet.
+
+```{r Sex prediction}
+
+WBC_GMSet_filterBadSamplesAndSites_noob_noSNPs <- mapToGenome(WBC_MSet_filterBadSamplesAndSites_noob_noSNPs)
+
+#predict sex
+
+predictedSex <- getSex(object = WBC_GMSet_filterBadSamplesAndSites_noob_noSNPs, cutoff = -2)
+
+table(predictedSex$predictedSex)
+
+WBC_GMSet_filterBadSamplesAndSites_noob_noSNPs_predictedSex <- addSex(WBC_GMSet_filterBadSamplesAndSites_noob_noSNPs)
+
+
+#plot predicted sex
+minfi::plotSex(WBC_GMSet_filterBadSamplesAndSites_noob_noSNPs_predictedSex)
+
+WBC_GMSet_filterBadSamplesAndSites_noob_noSNPs_predictedSex_pData <- as.data.frame(pData(WBC_GMSet_filterBadSamplesAndSites_noob_noSNPs_predictedSex))
+# participants with mismatched sex
+
+sum(is.na(WBC_GMSet_filterBadSamplesAndSites_noob_noSNPs_predictedSex_pData$Id))#41 participants without annotation
+
+#23 samples with mismatched sex
+WBC_mismatched_sex <- WBC_GMSet_filterBadSamplesAndSites_noob_noSNPs_predictedSex_pData %>% 
+  filter(!is.na(Id)) %>%
+  filter(Gender!=predictedSex)
+
+write_csv(WBC_mismatched_sex,"../data/WBC_mismatched_sex.csv")         
+
+
+```
+
+
+
+References
+
+Liu, J., & Siegmund, K. D. (2016). An evaluation of processing methods for HumanMethylation450 BeadChip data. BMC genomics, 17, 469. https://doi.org/10.1186/s12864-016-2819-7
+
+Triche, Timothy J, Daniel J Weisenberger, David Van Den Berg, Peter W Laird, and Kimberly D Siegmund. 2013. “Low-level processing of Illumina Infinium DNA Methylation BeadArrays.” Nucleic Acids Research 41 (7): e90. https://doi.org/10.1093/nar/gkt090.
+
+
+```{r Session Info}
+sessionInfo()
+```
+
