@@ -1,0 +1,120 @@
+---
+title: Genetic Imputation Quality
+author: Lauren Flynn    
+date: 6/25/24
+output: html_document
+---
+
+```{r setup, include = FALSE}
+knitr::opts_knit$set(root.dir = "/lab-share/Pulmonary-Chun-e2/Public/data/abridge/reung/imputed")
+```
+
+
+
+```{r load libraries}
+library(tidyverse)
+library(data.table)
+```
+
+The cohort of interest is CAMP, the Childhood Asthma Management Program. To impute the genotypes, the [Michigan Imputation Server](https://imputationserver.sph.umich.edu/index.html#!) was used.
+
+# Michigan Imputation Server
+
+To impute the genotypes, the [Michigan Imputation Server](https://imputationserver.sph.umich.edu/index.html#!) was used.
+
+## Overall Rsq Values for All Variants
+```{r define cohorts mich}
+cohorts <- c("stampeed_cau_022025", "usc_nhw_022025", "care_cau_022025")
+```
+
+```{r michigan imputation server per chromosome, eval = FALSE, include = FALSE}
+for (cohort in cohorts){
+  print(paste("Cohort:", cohort))
+  for (chr in 1:22){
+    print("********* Overall Imputation Quality **********")
+    
+    if(chr == 23){chr = "X"}
+    print(paste("Chromosome:", chr))
+    chr_info <- fread(str_interp("${cohort}/chr${chr}.info.gz"), na = "-")
+    rsq40 <- print(paste("Percent of SNPs with Rsq Over 0.4:", paste0(signif(chr_info[Rsq > 0.4, .N]/nrow(chr_info)*100, digits = 4), "%")))
+    rsq60 <- print(paste("Percent of SNPs with Rsq Over 0.6:", paste0(signif(chr_info[Rsq > 0.6, .N]/nrow(chr_info)*100, digits = 4), "%")))
+    rsq80 <- print(paste("Percent of SNPs with Rsq Over 0.8:", paste0(signif(chr_info[Rsq > 0.8, .N]/nrow(chr_info)*100, digits = 4), "%")))
+    rsq90 <- print(paste("Percent of SNPs with Rsq Over 0.9:", paste0(signif(chr_info[Rsq > 0.9, .N]/nrow(chr_info)*100, digits = 4), "%")))
+    print(summary(chr_info$Rsq))
+    print(ggplot(data = chr_info) + geom_histogram(aes(x = Rsq)) +
+            labs(title = paste("Chromosome", chr, "Imputation Quality")))
+    
+    print("********* Common SNP Imputation Quality **********")
+    chr_info_common <- chr_info %>% filter(MAF > 0.05)
+    rsq40 <- print(paste("Percent of SNPs with Rsq Over 0.4:", paste0(signif(chr_info_common[Rsq > 0.4, .N]/nrow(chr_info_common)*100, digits = 4), "%")))
+    rsq60 <- print(paste("Percent of SNPs with Rsq Over 0.6:", paste0(signif(chr_info_common[Rsq > 0.6, .N]/nrow(chr_info_common)*100, digits = 4), "%")))
+    rsq80 <- print(paste("Percent of SNPs with Rsq Over 0.8:", paste0(signif(chr_info_common[Rsq > 0.8, .N]/nrow(chr_info_common)*100, digits = 4), "%")))
+    rsq90 <- print(paste("Percent of SNPs with Rsq Over 0.9:", paste0(signif(chr_info_common[Rsq > 0.9, .N]/nrow(chr_info_common)*100, digits = 4), "%")))
+    print(summary(chr_info_common$Rsq))
+    print(ggplot(data = chr_info_common) + geom_histogram(aes(x = Rsq)) +
+            labs(title = paste("Chromosome", chr, "Imputation Quality")))
+    
+    print("********* Empirical Imputation Quality **********")
+    chr_info <- chr_info %>% filter(!is.na(EmpR))
+    print(paste("Number of Genotyped Variants with Empirical R Values:", nrow(chr_info)))
+    print(summary(chr_info$EmpR))
+    print(paste("Percent of SNPs with Empirical R Less than 0:", paste0(signif(chr_info[EmpR < 0, .N]/nrow(chr_info)*100, digits = 4), "%")))
+    print(paste("Percent of SNPs with Empirical R Over 0.4:", paste0(signif(chr_info[EmpR > 0.4, .N]/nrow(chr_info)*100, digits = 4), "%")))
+    print(paste("Percent of SNPs with Empirical R Over 0.6:", paste0(signif(chr_info[EmpR > 0.6, .N]/nrow(chr_info)*100, digits = 4), "%")))
+    print(paste("Percent of SNPs with Empirical R Over 0.8:", paste0(signif(chr_info[EmpR > 0.8, .N]/nrow(chr_info)*100, digits = 4), "%")))
+    print(paste("Percent of SNPs with Empirical R Over 0.9:", paste0(signif(chr_info[EmpR > 0.9, .N]/nrow(chr_info)*100, digits = 4), "%")))
+    print(ggplot(data = chr_info) + geom_histogram(aes(x= EmpR)))
+
+  }
+}
+
+```
+
+
+```{r michigan imputation server per cohort, cache = TRUE}
+for (cohort in cohorts){
+  print(paste("Cohort:", cohort))
+  cohort_info_list <- vector("list", length = 22)
+  for (chr in 1:22){
+    if(chr == 23){chr = "X"}
+    chr_info <- fread(str_interp("${cohort}/chr${chr}.info.gz"), na = "-")
+    cohort_info_list[[chr]] <- chr_info
+  }
+  cohort_info <- do.call(rbind, cohort_info_list)
+  print("********* Overall Imputation Quality **********")
+
+    rsq40 <- print(paste("Percent of SNPs with Rsq Over 0.4:", paste0(signif(cohort_info[Rsq > 0.4, .N]/nrow(cohort_info)*100, digits = 4), "%")))
+    rsq60 <- print(paste("Percent of SNPs with Rsq Over 0.6:", paste0(signif(cohort_info[Rsq > 0.6, .N]/nrow(cohort_info)*100, digits = 4), "%")))
+    rsq80 <- print(paste("Percent of SNPs with Rsq Over 0.8:", paste0(signif(cohort_info[Rsq > 0.8, .N]/nrow(cohort_info)*100, digits = 4), "%")))
+    rsq90 <- print(paste("Percent of SNPs with Rsq Over 0.9:", paste0(signif(cohort_info[Rsq > 0.9, .N]/nrow(cohort_info)*100, digits = 4), "%")))
+    print(summary(cohort_info$Rsq))
+    print(ggplot(data = cohort_info) + geom_histogram(aes(x = Rsq)) +
+            labs(title = paste("Chromosome", chr, "Imputation Quality")))
+    
+    print("********* Common SNP Imputation Quality **********")
+    cohort_info_common <- cohort_info %>% filter(MAF > 0.05)
+    rsq40 <- print(paste("Percent of SNPs with Rsq Over 0.4:", paste0(signif(cohort_info_common[Rsq > 0.4, .N]/nrow(cohort_info_common)*100, digits = 4), "%")))
+    rsq60 <- print(paste("Percent of SNPs with Rsq Over 0.6:", paste0(signif(cohort_info_common[Rsq > 0.6, .N]/nrow(cohort_info_common)*100, digits = 4), "%")))
+    rsq80 <- print(paste("Percent of SNPs with Rsq Over 0.8:", paste0(signif(cohort_info_common[Rsq > 0.8, .N]/nrow(cohort_info_common)*100, digits = 4), "%")))
+    rsq90 <- print(paste("Percent of SNPs with Rsq Over 0.9:", paste0(signif(cohort_info_common[Rsq > 0.9, .N]/nrow(cohort_info_common)*100, digits = 4), "%")))
+    print(summary(cohort_info_common$Rsq))
+    print(ggplot(data = cohort_info_common) + geom_histogram(aes(x = Rsq)) +
+            labs(title = paste("Chromosome", chr, "Imputation Quality")))
+    
+    print("********* Empirical Imputation Quality **********")
+    cohort_info <- cohort_info %>% filter(!is.na(EmpR))
+    print(paste("Number of Genotyped Variants with Empirical R Values:", nrow(cohort_info)))
+    print(summary(cohort_info$EmpR))
+    print(paste("Percent of SNPs with Empirical R Less than 0:", paste0(signif(cohort_info[EmpR < 0, .N]/nrow(cohort_info)*100, digits = 4), "%")))
+    print(paste("Percent of SNPs with Empirical R Over 0.4:", paste0(signif(cohort_info[EmpR > 0.4, .N]/nrow(cohort_info)*100, digits = 4), "%")))
+    print(paste("Percent of SNPs with Empirical R Over 0.6:", paste0(signif(cohort_info[EmpR > 0.6, .N]/nrow(cohort_info)*100, digits = 4), "%")))
+    print(paste("Percent of SNPs with Empirical R Over 0.8:", paste0(signif(cohort_info[EmpR > 0.8, .N]/nrow(cohort_info)*100, digits = 4), "%")))
+    print(paste("Percent of SNPs with Empirical R Over 0.9:", paste0(signif(cohort_info[EmpR > 0.9, .N]/nrow(cohort_info)*100, digits = 4), "%")))
+    print(ggplot(data = cohort_info) + geom_histogram(aes(x= EmpR)))
+  rm(cohort_info_list)
+  rm(cohort_info)
+  rm(chr_info)
+  
+}
+
+```
