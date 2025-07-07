@@ -6,3 +6,9 @@ The Asthma BioRepository for Integrative Genomic Exploration (Asthma BRIDGE) is 
 2. Data merge R code
 3. 450K_CD4_Methylation R code
 4. 450K_WBC_Methylation R code
+
+# Link to GEO 
+This dataset is available via the Gene Expression Omnibus (GEO) database (accession number GSE285752).
+This is the link below to the GEO database
+https://www.ncbi.nlm.nih.gov/geo/
+
