@@ -9,6 +9,7 @@ The Asthma BioRepository for Integrative Genomic Exploration (Asthma BRIDGE) is 
 3. 450K_CD4_Methylation R code
 4. 450K_WBC_Methylation R code
 5. quality_control/ Bash code for processing genotype data
+6. imputation_processing/ Bash and R code for processing Michigan imputation server outputs
 
 # Link to GEO 
 
