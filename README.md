@@ -2,7 +2,8 @@
 
 The Asthma BioRepository for Integrative Genomic Exploration (Asthma BRIDGE) is a publicly accessible resource of lymphoblastoid cell lines (LCLs) and multi-omic datasets linked to detailed and well-characterized phenotypes from patients with asthma and non-asthma controls. 1,479 consenting subjects of diverse genetic ancestry (1,231 with asthma, 248 without asthma) were recruited from the EVE asthma genetics consortium. These resources can catalyze integrative genomic studies of asthma and provide an extensive collection of genetically characterized cell lines for experimental studies.
 # Overview figure
-<img width="728" height="488" alt="for Asthma BRIDGE github" src="https://github.com/user-attachments/assets/6b7471e5-94c9-4eb6-b9b4-d1b3b1ee66c3" />
+<img width="731" height="481" alt="image" src="https://github.com/user-attachments/assets/b77ba709-68fb-4920-9886-8f481d404e76" />
+
 
 
 # Table of contents:
