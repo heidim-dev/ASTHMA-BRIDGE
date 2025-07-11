@@ -18,6 +18,7 @@ The Asthma BioRepository for Integrative Genomic Exploration (Asthma BRIDGE) is 
 # Link to GEO 
 
 1. Link to expression data GEO
+Transcriptomic Analysis of Asthma from The Asthma BioRepository for Integrative Genomic Exploration (Asthma BRIDGE) Project
 https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE285752
 2. Link to methylation data GEO
 GSE294810 (methylation data) - currently private until 31-August 2025
