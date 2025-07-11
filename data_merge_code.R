@@ -79,9 +79,7 @@ LstCampChips1to68
 ## element names: beadNum, detection, exprs, se.exprs
 ## protocolData: none
 ## phenoData
-## sampleNames: ST-00062678_S-000531211_5452276022_A
-## ST-00062779_S-000531213_5452276022_B ...
-## ST-00062056_S-000535736_5859738067_L (816 total)
+## sampleNames: #########
 ## varLabels: Tracking_Barcode Hybridization_Name ... Comments (38
 ## total)
 ## varMetadata: labelDescription
@@ -200,9 +198,8 @@ LstAbridgeChips1to163
 ## element names: beadNum, detection, exprs, se.exprs
 ## protocolData: none
 ## phenoData
-## sampleNames: ST-01000076_S-001001264_5447346015_A
-## ST-01000076_S-001001265_5447346015_B ...
-## ST-01005912_S-001122544_7649558061_L (1956 total)
+## sampleNames: ###########
+## ###########
 ## varLabels: Tracking_Barcode Hybridization_Name ... ABRIG_Batch
 ## (42 total)
 ## varMetadata: labelDescription
@@ -598,21 +595,17 @@ pDat3 <- pDat2[ttpos, ]
 ##We confirmed the fact that the sets of hybridization names were now identical as TRUE.
 pDat[1:2, 1:3]
 ## Tracking_Barcode
-## ST-00062678_S-000531211_5452276022_A S-000531211_CA010447303MR
-## ST-00062779_S-000531213_5452276022_B S-000531213_CA010447321MR
+## ###############
 ## Hybridization_Name
-## ST-00062678_S-000531211_5452276022_A ST-00062678_S-000531211_5452276022_A
-## ST-00062779_S-000531213_5452276022_B ST-00062779_S-000531213_5452276022_B
+## ###########################
 ## Treatment_Type
-## ST-00062678_S-000531211_5452276022_A Blood_Paxgene RNA
-## ST-00062779_S-000531213_5452276022_B Blood_Paxgene RNA
+## ####################
 pDat3[1:2, 1:3]
 ## Recruitment_ID Tracking_Barcode
 ## 1 501000551 S-000531211_CA010447303MR
 ## 2 501000047 S-000531213_CA010447321MR
 ## Hybridization_Name
-## 1 ST-00062678_S-000531211_5452276022_A
-## 2 ST-00062779_S-000531213_5452276022_B
+## #######################
 ##We replaced the missing row names from in the re-ordered merged phenotype data.
 ##row.names(pDat3) <- row.names(pDat)
 ##The column names for the new phenotype data are listed below.
