@@ -8,30 +8,23 @@ The Asthma BioRepository for Integrative Genomic Exploration (Asthma BRIDGE) is 
 
 # Table of contents:
 
-1. Processing gene expression data R code
-3. Methylation processing data R code 
+1. Processing codes for gene expression data QC
+3. Processing codes for CpG DNA methylation data QC
    3a. 450K_CD4_Methylation R code
    3b. 450K_WBC_Methylation R code
-4. quality_control/ Bash code for processing genotype data
-5. imputation_processing/ Bash and R code for processing Michigan imputation server outputs
+4. Processing codes for genotype data QC
 
-# Link to GEO 
+# Link to data repositories 
 
-1. Link to expression data GEO
-Transcriptomic Analysis of Asthma from The Asthma BioRepository for Integrative Genomic Exploration (Asthma BRIDGE) Project
-https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE285752
-2. Link to methylation data GEO
-GSE294810 (methylation data) - currently private until 31-August 2025
-This dataset is available via the Gene Expression Omnibus (GEO) database (accession number GSE285752).
-This is the link below to the GEO database
-https://www.ncbi.nlm.nih.gov/geo/
+1. Link to expression data
+[Transcriptomic Analysis of Asthma from The Asthma BioRepository for Integrative Genomic Exploration (Asthma BRIDGE) Project (GSE285752)]
+(https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE285752)
+2. Link to DNA methylation data
+[Epigenome-wide Analysis of Asthma from The Asthma BioRepository for Integrative Genomic Exploration (Asthma BRIDGE) Project (GSE294810)](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE294810)
+Currently private until 31-August 2025.
+3. Clinical, demographic, and post-QC imputed genome-wide genotype data will be posted on dbGaP. The dbGaP upload is currently in progress. 
 
-# dbGAP
-- clinical data
-- demographics
-- post QC imputed genotype data
-
-#Citation
+# Citation
 Asthma BRIDGE: The Asthma BioRepository for Integrative Genomic Exploration (in preparation)
 
 
